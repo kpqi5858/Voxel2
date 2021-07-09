@@ -5,6 +5,15 @@
 class UVoxelChunk;
 class UVoxelWorld;
 
+struct FVoxelMesherParameters
+{
+	//Should occulde non-visible faces locally?
+	bool bOcculdeFace = true;
+
+	//Should occulde non-visible faces in borders, referencing adjacent chunks?
+	bool bOcculdeFaceBorder = true;
+};
+
 class FVoxelMesher
 {
 	UVoxelWorld* VoxelWorld;
@@ -14,5 +23,7 @@ class FVoxelMesher
 public:
 	FVoxelMesher(UVoxelWorld* InVoxelWorld);
 
-	void DoMesh(UVoxelChunk* Chunk, TSharedPtr<FVoxelMeshData> MeshData);
+	void DoMesh(UVoxelChunk* Chunk, TSharedPtr<FVoxelMeshData, ESPMode::ThreadSafe> MeshData, const FVoxelMesherParameters& Params);
+
+	void DoCollision(UVoxelChunk* Chunk, TSharedPtr<FRuntimeMeshCollisionData, ESPMode::ThreadSafe> ColData);
 };

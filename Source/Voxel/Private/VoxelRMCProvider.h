@@ -19,7 +19,12 @@ public:
 	UVoxelWorld* VoxelWorld;
 
 	//0 - Current mesh data used, 1 - Temporary mesh data
-	TSharedPtr<FVoxelMeshData> MeshDataPtrs[2];
+	TSharedPtr<FVoxelMeshData, ESPMode::ThreadSafe> MeshDataPtrs[2];
+
+	//0 - Current collision data used, 1 - Temporary collision data
+	TSharedPtr<FRuntimeMeshCollisionData, ESPMode::ThreadSafe> CollisionDataPtrs[2];
+
+	int LastSections = 0;
 
 public:
 	UVoxelRMCProvider();
@@ -28,9 +33,15 @@ public:
 	void InitVoxel(UVoxelWorld* inVoxelWorld);
 
 	//Provide mesh data into here
-	TSharedPtr<FVoxelMeshData> GetMeshDataPtr();
+	TSharedPtr<FVoxelMeshData, ESPMode::ThreadSafe> GetMeshDataPtr();
+
+	//Provide mesh data into here
+	TSharedPtr<FRuntimeMeshCollisionData, ESPMode::ThreadSafe> GetCollisionDataPtr();
+
 
 	void UpdateMesh();
+
+	void UpdateCollision();
 
 	void Initialize() override;
 
@@ -38,11 +49,15 @@ public:
 
 	FBoxSphereBounds GetBounds() override;
 
+	FRuntimeMeshCollisionSettings GetCollisionSettings() override;
+
+	bool GetCollisionMesh(FRuntimeMeshCollisionData& CollisionData) override;
+
+	bool HasCollisionMesh() override;
+
 	bool IsThreadSafe() override
 	{
 		//Idk how it is threaded so return false for this time
 		return false;
 	};
-
-	bool HasCollisionMesh() override;
 };

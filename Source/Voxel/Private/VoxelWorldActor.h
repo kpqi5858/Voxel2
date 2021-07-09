@@ -32,6 +32,8 @@ public:
 	void InitWorld();
 	void DestroyWorld();
 
+	UVoxelWorld* GetVoxelWordChecked();
+
 	UFUNCTION(BlueprintCallable)
 	void Test();
 };

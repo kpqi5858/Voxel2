@@ -20,13 +20,6 @@ UVoxelWorld::~UVoxelWorld()
 void UVoxelWorld::Test()
 {
     check(bIsWorldCreated);
-
-    UVoxelChunk* Chunk = GetChunk(FIntVector(0), true);
-
-    InitMesh(GetFreeMesh(), Chunk);
-    Chunk->GenerateChunk();
-    Chunk->PolygonizeChunk();
-    Chunk->UpdateMesh();
 }
 
 void UVoxelWorld::CreateWorld(UWorld* InWorld)
@@ -40,12 +33,17 @@ void UVoxelWorld::CreateWorld(UWorld* InWorld)
         FActorSpawnParameters SpawnPara;
         SpawnPara.Name = FName("VoxelWorldMesh");
 
-        MeshActor = World->SpawnActor(AActor::StaticClass());
+        MeshActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnPara);
     }
 
     WorldGenerator = NewObject<UVoxelFlatWorldGenerator>(this);
 
     Mesher = new FVoxelMesher(this);
+
+    BlockRegistryPtr = FBlockRegistry::GetInstance();
+
+    ThreadPool = FQueuedThreadPool::Allocate();
+    ThreadPool->Create(8, 409600U, EThreadPriority::TPri_Normal);
 
     bIsWorldCreated = true;
 }
@@ -85,7 +83,131 @@ void UVoxelWorld::DestroyWorld()
 
     MeshComponents.Empty();
 
+    BlockRegistryPtr = nullptr;
+
+    ThreadPool->Destroy();
+
     bIsWorldCreated = false;
+}
+
+void UVoxelWorld::Tick()
+{
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(314159, 0, FColor::Emerald, FString::Printf(TEXT("Loaded chunks : %d, Jobs remaining : %d"), ChunksArray.Num(), JobsRemaining.GetValue()));
+    }
+
+    UpdatesThisTick = 0;
+
+    for (auto& Tracker : Trackers)
+    {
+        FVector Location = Tracker->GetActorLocation();
+
+        FIntVector VoxelPos = ToVoxelPos(Location);
+        FIntVector ChunkPos = FVoxelUtilities::VoxelPosToChunkPos(VoxelPos);
+
+        for (int X = ChunkPos.X - RenderDistance; X <= ChunkPos.X + RenderDistance; X++)
+        {
+            for (int Y = ChunkPos.Y - RenderDistance; Y <= ChunkPos.Y + RenderDistance; Y++)
+            {
+                for (int Z = ChunkPos.Z - RenderDistance; Z <= ChunkPos.Z + RenderDistance; Z++)
+                {
+                    FIntVector NewChunk = FIntVector(X, Y, Z);
+                    if (ShouldBeRendered(NewChunk))
+                    {
+                        GetChunk(NewChunk, true);
+                    }
+                }
+            }
+        }
+        //GetChunk(ChunkPos, true);
+    }
+
+    for (auto& Chunk : ChunksArray)
+    {
+        if (Chunk->GetChunkState() == EChunkState::Destroyed)
+        {
+            continue;
+        }
+
+        Chunk->Tick();
+    }
+
+    TArray<UVoxelChunk*> NewToDestroy;
+    NewToDestroy.Reserve(ToDestroy.Num());
+
+    for (auto& Chunk : ToDestroy)
+    {
+        if (Chunk->IsReadyForFinishDestroy())
+        {
+            FinalizeDestroyChunk(Chunk);
+        }
+        else
+        {
+            NewToDestroy.Add(Chunk);
+        }
+    }
+
+    ToDestroy = NewToDestroy;
+}
+
+void UVoxelWorld::RegisterTracker(AActor* Actor)
+{
+    Trackers.AddUnique(Actor);
+}
+
+void UVoxelWorld::QueueChunkWork(UVoxelChunk* Chunk, EChunkWorkType Type)
+{
+    FChunkWork& Work = Chunk->GetChunkWork(Type);
+
+    if (Work.bIsWorkOnline)
+    {
+        return;
+    }
+
+    Chunk->RemainingWorks.Increment();
+
+    Work.bIsWorkOnline = true;
+    Work.bIsDone = false;
+
+    if (bAsync)
+    {
+        static int64 UniqueWorkId = 1;
+
+        Work.CurrentWorkId = UniqueWorkId;
+
+        JobsRemaining.Increment();
+        ThreadPool->AddQueuedWork(new FQueuedChunkWork(Chunk, Type, UniqueWorkId));
+        
+        UniqueWorkId++;
+    }
+    else
+    {
+        switch (Type)
+        {
+        case EChunkWorkType::WorldGen:
+        {
+            Chunk->GenerateChunk();
+            break;
+        }
+        case EChunkWorkType::Collision:
+        {
+            Chunk->BuildCollision();
+            break;
+        }
+        case EChunkWorkType::Mesh:
+        {
+            Chunk->PolygonizeChunk();
+            break;
+        }
+        }
+
+        Work.bIsWorkOnline = false;
+        Work.bIsDone = true;
+
+        Chunk->RemainingWorks.Decrement();
+    }
+
 }
 
 UVoxelChunk* UVoxelWorld::NewChunk(const FIntVector& ChunkPos)
@@ -102,10 +224,13 @@ UVoxelChunk* UVoxelWorld::NewChunk(const FIntVector& ChunkPos)
 
 UVoxelChunk* UVoxelWorld::GetChunk(const FIntVector& ChunkPos, const bool bCreateIfNotExists)
 {
+    FRWScopeLock sl(ChunksLock, FRWScopeLockType::SLT_ReadOnly);
+
     UVoxelChunk** Find = Chunks.Find(ChunkPos);
 
     if (!Find && bCreateIfNotExists)
     {
+        sl.ReleaseReadOnlyLockAndAcquireWriteLock_USE_WITH_CAUTION();
         return NewChunk(ChunkPos);
     }
 
@@ -117,26 +242,46 @@ UVoxelChunk* UVoxelWorld::GetChunk(const FIntVector& ChunkPos, const bool bCreat
     return *Find;
 }
 
+void UVoxelWorld::OnChunkDestroyed(UVoxelChunk* Chunk)
+{
+    ToDestroy.Add(Chunk);
+}
+
+void UVoxelWorld::FinalizeDestroyChunk(UVoxelChunk* Chunk)
+{
+    Chunks.Remove(Chunk->ChunkPos);
+    ChunksArray.RemoveSwap(Chunk);
+
+    delete Chunk;
+}
+
 URuntimeMeshComponent* UVoxelWorld::GetFreeMesh()
 {
     URuntimeMeshComponent* Comp = nullptr;
 
-    if (bActorPerMesh)
+    if (FreeMeshComponents.Num())
     {
-        FActorSpawnParameters Para;
-        Para.Name = FName(FString::Printf(TEXT("VoxelChunkMesh-%d"), FMath::Rand() % 1024));
-
-        ARuntimeMeshActor* Actor = World->SpawnActor<ARuntimeMeshActor>(ARuntimeMeshActor::StaticClass(), Para);
-
-        Actor->SetMobility(EComponentMobility::Movable);
-
-        Comp = Actor->GetRuntimeMeshComponent();
+        Comp = FreeMeshComponents.Pop(false);
     }
     else
     {
-        Comp = NewObject<URuntimeMeshComponent>(MeshActor);
-        Comp->SetupAttachment(MeshActor->GetRootComponent());
-        Comp->RegisterComponent();
+        if (bActorPerMesh)
+        {
+            FActorSpawnParameters Para;
+            Para.Name = FName(FString::Printf(TEXT("VoxelChunkMesh-%d"), FMath::Rand() % 1024));
+
+            ARuntimeMeshActor* Actor = World->SpawnActor<ARuntimeMeshActor>(ARuntimeMeshActor::StaticClass(), Para);
+
+            Actor->SetMobility(EComponentMobility::Movable);
+
+            Comp = Actor->GetRuntimeMeshComponent();
+        }
+        else
+        {
+            Comp = NewObject<URuntimeMeshComponent>(MeshActor);
+            Comp->SetupAttachment(MeshActor->GetRootComponent());
+            Comp->RegisterComponent();
+        }
     }
 
     UVoxelRMCProvider* Provider = NewObject<UVoxelRMCProvider>(Comp);
@@ -147,12 +292,18 @@ URuntimeMeshComponent* UVoxelWorld::GetFreeMesh()
     return Comp;
 }
 
-void UVoxelWorld::InitMesh(URuntimeMeshComponent* Comp, UVoxelChunk* Chunk)
+void UVoxelWorld::ReleaseMesh(URuntimeMeshComponent* Comp)
 {
-    UVoxelRMCProvider* Provider = CastChecked<UVoxelRMCProvider>(Comp->GetProvider());
+    Comp->Initialize(nullptr);
+    FreeMeshComponents.Add(Comp);
+}
+
+void UVoxelWorld::SetupMesh(UVoxelChunk* Chunk)
+{
+    URuntimeMeshComponent* Comp = GetFreeMesh();
 
     Comp->SetRelativeLocation(FVector(Chunk->GetMinPos()) * VoxelSize);
-    Chunk->InitMesh(Provider);
+    Chunk->InitMesh(Comp);
 }
 
 FVoxelMesher* UVoxelWorld::GetMesher()
@@ -160,4 +311,86 @@ FVoxelMesher* UVoxelWorld::GetMesher()
     check(bIsWorldCreated);
 
     return Mesher;
+}
+
+float UVoxelWorld::GetMinDistanceToTrackers(const FIntVector& ChunkPos)
+{
+    float Min = 999999999.9f;
+
+    for (auto& Tracker : Trackers)
+    {
+        FVector Location = Tracker->GetActorLocation();
+
+        FIntVector VoxelPos = ToVoxelPos(Location);
+        FIntVector OfChunkPos = FVoxelUtilities::VoxelPosToChunkPos(VoxelPos);
+
+        Min = FMath::Min(Min, FVector::Dist(FVector(ChunkPos), FVector(OfChunkPos)));
+    }
+
+    return Min;
+}
+
+bool UVoxelWorld::ShouldBeRendered(const FIntVector& Chunk)
+{
+    return GetMinDistanceToTrackers(Chunk) < RenderDistance;
+}
+
+bool UVoxelWorld::ShouldBeDestroyed(const FIntVector& Chunk)
+{
+    return GetMinDistanceToTrackers(Chunk) > RenderDistance + DestroyExtent;
+}
+
+void FQueuedChunkWork::DoThreadedWork()
+{
+    auto& Work = Chunk->GetChunkWork(WorkType);
+
+    //Is this work invalid?
+    if (Work.CurrentWorkId.GetValue() != WorkId)
+    {
+        delete this;
+        return;
+    }
+
+    switch (WorkType)
+    {
+    case EChunkWorkType::WorldGen:
+    {
+        Chunk->GenerateChunk();
+        break;
+    }
+    case EChunkWorkType::Collision:
+    {
+        Chunk->BuildCollision();
+        break;
+    }
+    case EChunkWorkType::Mesh:
+    {
+        Chunk->PolygonizeChunk();
+        break;
+    }
+    }
+
+    if (Work.CurrentWorkId.GetValue() != WorkId)
+    {
+        ensureAlways(false);
+
+        delete this;
+        return;
+    }
+
+    Work.bIsDone = true;
+    Work.bIsWorkOnline = false;
+
+    Chunk->RemainingWorks.Decrement();
+    Chunk->VoxelWorld->JobsRemaining.Decrement();
+
+    delete this;
+}
+
+void FQueuedChunkWork::Abandon()
+{
+    Chunk->RemainingWorks.Decrement();
+    Chunk->VoxelWorld->JobsRemaining.Decrement();
+
+    delete this;
 }

@@ -12,13 +12,17 @@ AVoxelWorldActor::AVoxelWorldActor()
 void AVoxelWorldActor::BeginPlay()
 {
 	Super::BeginPlay();
-
+	InitWorld();
 }
 
 void AVoxelWorldActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	if (VoxelWorld)
+	{
+		VoxelWorld->Tick();
+	}
 }
 
 void AVoxelWorldActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -43,10 +47,14 @@ void AVoxelWorldActor::DestroyWorld()
 	VoxelWorld = nullptr;
 }
 
+UVoxelWorld* AVoxelWorldActor::GetVoxelWordChecked()
+{
+	check(VoxelWorld);
+	return VoxelWorld;
+}
+
 void AVoxelWorldActor::Test()
 {
-	InitWorld();
-
-	VoxelWorld->Test();
+	//VoxelWorld->Test();
 }
 

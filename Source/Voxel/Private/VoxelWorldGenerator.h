@@ -19,6 +19,7 @@ public:
 		unimplemented();
 
 		const FIntVector ChunkPos = Chunk->GetMinPos();
+		const auto BlockStorage = Chunk->GetBlockStorage();
 
 		for (int X = 0; X < VOX_CHUNKSIZE; X++)
 		{
@@ -42,6 +43,7 @@ public:
 	void GenerateChunk(UVoxelChunk* Chunk) override
 	{
 		const FIntVector ChunkPos = Chunk->GetMinPos();
+		const auto BlockStorage = Chunk->GetBlockStorage();
 
 		for (int X = 0; X < VOX_CHUNKSIZE; X++)
 		{
@@ -53,7 +55,7 @@ public:
 
 					if (GlobalPos.Z < 2)
 					{
-						Chunk->Blocks[FVoxelUtilities::GetArrayIndex(GlobalPos)].BlockId = 1;
+						BlockStorage->SetBlock(X, Y, Z, GetVoxelBlock(TEXT("SolidDefault")));
 					}
 				}
 			}
