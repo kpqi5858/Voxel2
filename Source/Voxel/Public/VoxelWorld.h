@@ -40,13 +40,13 @@ public:
 	UVoxelWorldGenerator* WorldGenerator;
 
 	UPROPERTY()
-	float RenderDistance = 4.0f;
+	float RenderDistance = 8.0f;
 
 	UPROPERTY()
 	float DestroyExtent = 2.0f;
 
 	UPROPERTY()
-	int MaxUpdatesPerTick = 15;
+	int MaxUpdatesPerTick = 40;
 
 	FThreadSafeCounter JobsRemaining;
 

@@ -32,7 +32,7 @@ void UVoxelChunk::SetBlock(int LocalX, int LocalY, int LocalZ, UVoxelBlockDef* B
 
 void UVoxelChunk::Tick()
 {
-	if (VoxelWorld->ShouldBeDestroyed(ChunkPos))
+	if (VoxelWorld->ShouldBeDestroyed(ChunkPos) && VoxelWorld->TryUpdate())
 	{
 		DestroyChunk();
 
@@ -44,7 +44,7 @@ void UVoxelChunk::Tick()
 		return;
 	}
 
-	if (ChunkState == EChunkState::Init)
+	if (ChunkState == EChunkState::Init || ChunkState == EChunkState::NotRendered)
 	{
 		if (VoxelWorld->ShouldBeRendered(ChunkPos))
 		{
@@ -53,6 +53,16 @@ void UVoxelChunk::Tick()
 		else
 		{
 			ChunkState = EChunkState::NotRendered;
+		}
+	}
+
+	if (ChunkState == EChunkState::NotRendered)
+	{
+		if (WorldGenerationPhase == 0)
+		{
+			WorldGenerationPhase = 1;
+
+			VoxelWorld->QueueChunkWork(this, EChunkWorkType::WorldGen);
 		}
 	}
 
@@ -73,11 +83,12 @@ void UVoxelChunk::Tick()
 		if (WorldGenerationPhase == 2)
 		{
 			SetChunkDirty();
+			SetAdjacentChunkDirty();
 
 			WorldGenerationPhase = 3;
 		}
 
-		if (bIsChunkDirty)
+		if (bIsChunkDirty && RMCProvider)
 		{
 			VoxelWorld->QueueChunkWork(this, EChunkWorkType::Collision);
 			VoxelWorld->QueueChunkWork(this, EChunkWorkType::Mesh);
@@ -88,7 +99,6 @@ void UVoxelChunk::Tick()
 
 	if (WorldGenWork.IsDone())
 	{
-		SetAdjacentChunkDirty();
 		WorldGenerationPhase = 2;
 	}
 	if (CollisionWork.IsDone() || CollisionWork.bIsDelaying)
@@ -119,7 +129,10 @@ void UVoxelChunk::Tick()
 
 void UVoxelChunk::DestroyChunk()
 {
-	VoxelWorld->ReleaseMesh(RMC);
+	if (RMC)
+	{
+		VoxelWorld->ReleaseMesh(RMC);
+	}
 
 	VoxelWorld->OnChunkDestroyed(this);
 }
@@ -211,7 +224,7 @@ void UVoxelChunk::UpdateCollision()
 
 void UVoxelChunk::InitMesh(URuntimeMeshComponent* Comp)
 {
-	RMC = Comp;
 	RMCProvider = CastChecked<UVoxelRMCProvider>(Comp->GetProvider());
+	RMC = Comp;
 }
 

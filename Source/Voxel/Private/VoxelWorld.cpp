@@ -4,6 +4,7 @@
 #include "VoxelWorldGenerator.h"
 #include "VoxelMesher.h"
 #include "RuntimeMeshActor.h"
+#include "Async/Async.h"
 
 UVoxelWorld::UVoxelWorld()
 {
@@ -94,7 +95,7 @@ void UVoxelWorld::Tick()
 {
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(314159, 0, FColor::Emerald, FString::Printf(TEXT("Loaded chunks : %d, Jobs remaining : %d"), ChunksArray.Num(), JobsRemaining.GetValue()));
+        GEngine->AddOnScreenDebugMessage(314159, 0, FColor::Emerald, FString::Printf(TEXT("Loaded chunks : %d, Jobs remaining : %d, Updates this tick : %d"), ChunksArray.Num(), JobsRemaining.GetValue(), UpdatesThisTick));
     }
 
     UpdatesThisTick = 0;
@@ -106,14 +107,16 @@ void UVoxelWorld::Tick()
         FIntVector VoxelPos = ToVoxelPos(Location);
         FIntVector ChunkPos = FVoxelUtilities::VoxelPosToChunkPos(VoxelPos);
 
-        for (int X = ChunkPos.X - RenderDistance; X <= ChunkPos.X + RenderDistance; X++)
+        float CreationDistance = RenderDistance + DestroyExtent;
+
+        for (int X = ChunkPos.X - CreationDistance; X <= ChunkPos.X + CreationDistance; X++)
         {
-            for (int Y = ChunkPos.Y - RenderDistance; Y <= ChunkPos.Y + RenderDistance; Y++)
+            for (int Y = ChunkPos.Y - CreationDistance; Y <= ChunkPos.Y + CreationDistance; Y++)
             {
-                for (int Z = ChunkPos.Z - RenderDistance; Z <= ChunkPos.Z + RenderDistance; Z++)
+                for (int Z = ChunkPos.Z - CreationDistance; Z <= ChunkPos.Z + CreationDistance; Z++)
                 {
                     FIntVector NewChunk = FIntVector(X, Y, Z);
-                    if (ShouldBeRendered(NewChunk))
+                    if (GetMinDistanceToTrackers(NewChunk) <= CreationDistance)
                     {
                         GetChunk(NewChunk, true);
                     }
@@ -167,6 +170,7 @@ void UVoxelWorld::QueueChunkWork(UVoxelChunk* Chunk, EChunkWorkType Type)
 
     Chunk->RemainingWorks.Increment();
 
+    Work.bIsDelaying = false;
     Work.bIsWorkOnline = true;
     Work.bIsDone = false;
 

@@ -16,6 +16,8 @@ void UVoxelRMCProvider::InitVoxel(UVoxelWorld* inVoxelWorld)
 
 TSharedPtr<FVoxelMeshData, ESPMode::ThreadSafe> UVoxelRMCProvider::GetMeshDataPtr()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	if (!MeshDataPtrs[1].IsValid())
 	{
 		MeshDataPtrs[1] = MakeShareable(new FVoxelMeshData());
@@ -26,6 +28,8 @@ TSharedPtr<FVoxelMeshData, ESPMode::ThreadSafe> UVoxelRMCProvider::GetMeshDataPt
 
 TSharedPtr<FRuntimeMeshCollisionData, ESPMode::ThreadSafe> UVoxelRMCProvider::GetCollisionDataPtr()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	if (!CollisionDataPtrs[1].IsValid())
 	{
 		CollisionDataPtrs[1] = MakeShareable(new FRuntimeMeshCollisionData());
@@ -36,6 +40,8 @@ TSharedPtr<FRuntimeMeshCollisionData, ESPMode::ThreadSafe> UVoxelRMCProvider::Ge
 
 void UVoxelRMCProvider::UpdateMesh()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	check(VoxelWorld);
 	check(MeshDataPtrs[1].IsValid());
 
@@ -75,6 +81,8 @@ void UVoxelRMCProvider::UpdateMesh()
 
 void UVoxelRMCProvider::UpdateCollision()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	check(VoxelWorld);
 	check(CollisionDataPtrs[1].IsValid());
 
@@ -86,6 +94,8 @@ void UVoxelRMCProvider::UpdateCollision()
 
 void UVoxelRMCProvider::Initialize()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	FRuntimeMeshLODProperties LODProperties;
 	LODProperties.ScreenSize = 0.0f;
 
@@ -94,6 +104,8 @@ void UVoxelRMCProvider::Initialize()
 
 bool UVoxelRMCProvider::GetSectionMeshForLOD(int32 LODIndex, int32 SectionId, FRuntimeMeshRenderableMeshData& MeshData)
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	if (LODIndex != 0 || !MeshDataPtrs[0]->Sections.IsValidIndex(SectionId))
 	{
 		return false;
@@ -112,6 +124,8 @@ FBoxSphereBounds UVoxelRMCProvider::GetBounds()
 
 FRuntimeMeshCollisionSettings UVoxelRMCProvider::GetCollisionSettings()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	FRuntimeMeshCollisionSettings Settings;
 
 	Settings.bUseAsyncCooking = true;
@@ -122,6 +136,8 @@ FRuntimeMeshCollisionSettings UVoxelRMCProvider::GetCollisionSettings()
 
 bool UVoxelRMCProvider::GetCollisionMesh(FRuntimeMeshCollisionData& CollisionData)
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	check(CollisionDataPtrs[0].IsValid());
 
 	CollisionData = *CollisionDataPtrs[0];
@@ -131,5 +147,7 @@ bool UVoxelRMCProvider::GetCollisionMesh(FRuntimeMeshCollisionData& CollisionDat
 
 bool UVoxelRMCProvider::HasCollisionMesh()
 {
+	FScopeLock Lock(&PropertySyncRoot);
+
 	return CollisionDataPtrs[0]->Vertices.Num() != 0;
 }

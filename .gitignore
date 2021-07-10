@@ -91,5 +91,6 @@ Build/Android/res/*
 Build/Android/res/*/*
 !Build/Android/res/*/*.png
 
-Content/*
 # End of https://www.toptal.com/developers/gitignore/api/unrealengine
+
+Content/*

@@ -14,7 +14,7 @@ class VOXEL_API UVoxelRMCProvider : public URuntimeMeshProvider
 {
 	GENERATED_BODY()
 
-public:
+protected:
 	UPROPERTY()
 	UVoxelWorld* VoxelWorld;
 
@@ -25,6 +25,8 @@ public:
 	TSharedPtr<FRuntimeMeshCollisionData, ESPMode::ThreadSafe> CollisionDataPtrs[2];
 
 	int LastSections = 0;
+
+	mutable FCriticalSection PropertySyncRoot;
 
 public:
 	UVoxelRMCProvider();
@@ -57,7 +59,6 @@ public:
 
 	bool IsThreadSafe() override
 	{
-		//Idk how it is threaded so return false for this time
-		return false;
+		return true;
 	};
 };
