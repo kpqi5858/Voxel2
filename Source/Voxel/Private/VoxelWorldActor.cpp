@@ -7,7 +7,6 @@ AVoxelWorldActor::AVoxelWorldActor()
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootComponent"));
 
 	PrimaryActorTick.bCanEverTick = true;
-	PrimaryActorTick.bRunOnAnyThread = true;
 }
 
 void AVoxelWorldActor::BeginPlay()
